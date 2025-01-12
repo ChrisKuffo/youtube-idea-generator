@@ -1,76 +1,85 @@
-"use client";
+"use client"; // Indicates that this component is a client-side component
 
-import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Plus, X } from "lucide-react";
+import { useState, useEffect } from "react"; // Import React hooks for state and side effects
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog"; // Import dialog components for modal functionality
+import { Button } from "@/components/ui/button"; // Import a custom Button component
+import { Input } from "@/components/ui/input"; // Import a custom Input component
+import { Plus, X } from "lucide-react"; // Import icons for UI elements
 
-import { YouTubeChannelType } from "@/server/db/schema";
+import { YouTubeChannelType } from "@/server/db/schema"; // Import the YouTubeChannelType for type safety
 
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { getChannelsForUser } from "@/server/queries";
-import { addChannelForUser, removeChannelForUser } from "@/server/mutations";
+import { ScrollArea } from "@/components/ui/scroll-area"; // Import a custom ScrollArea component for scrollable content
+import { getChannelsForUser } from "@/server/queries"; // Import function to fetch channels for the user
+import { addChannelForUser, removeChannelForUser } from "@/server/mutations"; // Import functions to add and remove channels
 
+// Define the SettingsModal component
 export function SettingsModal() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [channels, setChannels] = useState<YouTubeChannelType[]>([]);
-  const [newChannel, setNewChannel] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false); // State to track if the modal is open
+  const [channels, setChannels] = useState<YouTubeChannelType[]>([]); // State to store the list of channels
+  const [newChannel, setNewChannel] = useState(""); // State to store the new channel name input
+  const [isLoading, setIsLoading] = useState(false); // State to track loading status
 
+  // Effect to fetch channels when the modal is opened
   useEffect(() => {
     if (isOpen) {
       fetchChannels();
     }
   }, [isOpen]);
 
+  // Function to fetch channels for the user
   const fetchChannels = async () => {
-    setIsLoading(true);
+    setIsLoading(true); // Set loading state to true
     try {
-      const fetchedChannels = await getChannelsForUser();
-      setChannels(fetchedChannels);
+      const fetchedChannels = await getChannelsForUser(); // Fetch channels
+      setChannels(fetchedChannels); // Update state with fetched channels
     } catch (error) {
-      console.error("Failed to fetch channels:", error);
+      console.error("Failed to fetch channels:", error); // Log any errors
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Set loading state to false
     }
   };
 
+  // Function to add a new channel
   const addChannel = async () => {
     if (newChannel) {
-      setIsLoading(true);
+      setIsLoading(true); // Set loading state to true
       try {
-        const addedChannel = await addChannelForUser(newChannel);
-        setChannels([...channels, addedChannel]);
-        setNewChannel("");
+        const addedChannel = await addChannelForUser(newChannel); // Add channel
+        setChannels([...channels, addedChannel]); // Update state with new channel
+        setNewChannel(""); // Clear input field
       } catch (error) {
-        console.error("Failed to add channel:", error);
+        console.error("Failed to add channel:", error); // Log any errors
       } finally {
-        setIsLoading(false);
+        setIsLoading(false); // Set loading state to false
       }
     }
   };
 
+  // Function to remove a channel
   const removeChannel = async (id: string) => {
-    setIsLoading(true);
+    setIsLoading(true); // Set loading state to true
     try {
-      await removeChannelForUser(id);
-      setChannels(channels.filter((c) => c.id !== id));
+      await removeChannelForUser(id); // Remove channel
+      setChannels(channels.filter((c) => c.id !== id)); // Update state to remove channel
     } catch (error) {
-      console.error("Failed to remove channel:", error);
+      console.error("Failed to remove channel:", error); // Log any errors
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Set loading state to false
     }
   };
 
+  // Render the modal
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      {/* Dialog component to handle modal open/close state */}
       <DialogTrigger asChild>
+        {/* Trigger to open the modal */}
         <p className="cursor-pointer text-primary hover:text-red-500 transition-all">
           Settings
         </p>
       </DialogTrigger>
       <DialogContent className="max-w-[425px] rounded-2xl p-6 space-y-2">
+        {/* Content of the modal */}
         <div className="py-4 space-y-6">
           <div className="space-y-2">
             <h3 className="font-semibold text-red-500 text-lg">

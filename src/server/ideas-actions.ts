@@ -30,52 +30,58 @@ interface Research {
 }
 
 export async function kickoffIdeaGeneration(): Promise<void> {
+  // Authenticate the user and retrieve the user ID
   const { userId } = await auth();
 
+  // If no user ID is found, throw an error indicating the user is not authenticated
   if (!userId) {
     throw new Error("User not authenticated");
   }
 
   console.log("Fetching latest 50 unused comments for user:", userId);
 
-  // Fetch the latest 50 unused comments
+  // Fetch the latest 50 unused comments for the authenticated user
   const comments = await db
     .select({
-      title: Videos.title,
-      comment: VideoComments.commentText,
-      video_id: Videos.id,
-      comment_id: VideoComments.id,
+      title: Videos.title, // Select the video title
+      comment: VideoComments.commentText, // Select the comment text
+      video_id: Videos.id, // Select the video ID
+      comment_id: VideoComments.id, // Select the comment ID
     })
     .from(VideoComments)
-    .innerJoin(Videos, eq(VideoComments.videoId, Videos.id))
+    .innerJoin(Videos, eq(VideoComments.videoId, Videos.id)) // Join VideoComments with Videos on videoId
     .where(
-      and(eq(VideoComments.userId, userId), eq(VideoComments.isUsed, false))
+      and(eq(VideoComments.userId, userId), eq(VideoComments.isUsed, false)) // Filter for comments by the user that are not used
     )
-    .orderBy(VideoComments.createdAt)
-    .limit(50);
+    .orderBy(VideoComments.createdAt) // Order comments by creation date
+    .limit(50); // Limit the results to 50 comments
 
   console.log("Fetched comments:", comments);
 
+  // If no comments are found, throw an error
   if (comments.length === 0) {
     throw new Error("No unused comments found to generate ideas");
   }
 
+  // Convert the comments array to a JSON string
   const commentsString = JSON.stringify(comments);
   console.log("Formatted comments:", commentsString);
 
+  // Extract the comment IDs to mark them as used
   const usedCommentIds = comments.map((comment) => comment.comment_id);
 
+  // Update the VideoComments table to mark the comments as used
   await db
     .update(VideoComments)
     .set({ isUsed: true, updatedAt: new Date() })
     .where(
       and(
-        eq(VideoComments.userId, userId),
-        inArray(VideoComments.id, usedCommentIds)
+        eq(VideoComments.userId, userId), // Ensure the update is for the correct user
+        inArray(VideoComments.id, usedCommentIds) // Update only the selected comments
       )
     );
 
-  // Prepare request payload
+  // Prepare the request payload for the CrewAI service
   const payload = {
     inputs: { comments: commentsString },
   };
@@ -86,97 +92,108 @@ export async function kickoffIdeaGeneration(): Promise<void> {
       payload
     );
 
-    // Send POST request to CrewAI /kickoff endpoint
+    // Send a POST request to the CrewAI /kickoff endpoint
     const kickoffResponse = await fetch(`${process.env.CREWAI_URL}/kickoff`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.CREWAI_BEARER_TOKEN}`,
+        "Content-Type": "application/json", // Set the content type to JSON
+        Authorization: `Bearer ${process.env.CREWAI_BEARER_TOKEN}`, // Use the bearer token for authorization
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload), // Send the payload as the request body
     });
 
     console.log("Received response from CrewAI /kickoff:", kickoffResponse);
 
+    // If the response is not OK, throw an error
     if (!kickoffResponse.ok) {
       throw new Error("Failed to initiate job with CrewAI");
     }
 
+    // Parse the JSON response to get the kickoff data
     const kickoffData = await kickoffResponse.json();
     console.log("Kickoff data received:", kickoffData);
 
+    // Extract the kickoff ID from the response
     const kickoffId = kickoffData.kickoff_id;
 
-    // Store the kickoff_id in the CrewJobs table
+    // Create a new job entry to store in the CrewJobs table
     const newJob: InsertCrewJob = {
       userId,
       kickoffId,
       jobState: "STARTED",
     };
 
+    // Insert the new job into the CrewJobs table
     await db.insert(CrewJobs).values(newJob);
     console.log("New job inserted into CrewJobs table:", newJob);
   } catch (error) {
+    // Log any errors that occur during the process
     console.error("Error initiating idea generation:", error);
     throw error;
   }
 }
 
 export async function processPendingJobs(): Promise<void> {
+  // Authenticate the user and retrieve the user ID
   const { userId } = await auth();
 
+  // If no user ID is found, throw an error indicating the user is not authenticated
   if (!userId) {
     throw new Error("User not authenticated");
   }
 
   console.log("User ID:", userId);
 
-  // Fetch pending or running jobs that have not been processed
+  // Fetch jobs that are pending or running and have not been processed for the authenticated user
   const pendingJobs = await db
     .select()
     .from(CrewJobs)
     .where(
       and(
-        eq(CrewJobs.userId, userId),
-        eq(CrewJobs.processed, false),
-        inArray(CrewJobs.jobState, ["RUNNING", "STARTED", "PENDING"])
+        eq(CrewJobs.userId, userId), // Match jobs for the current user
+        eq(CrewJobs.processed, false), // Only select jobs that have not been processed
+        inArray(CrewJobs.jobState, ["RUNNING", "STARTED", "PENDING"]) // Jobs must be in one of these states
       )
     );
 
   console.log("Pending jobs:", pendingJobs);
 
+  // If there are no pending jobs, log a message and exit the function
   if (pendingJobs.length === 0) {
     console.log("No pending jobs to process.");
     return;
   }
 
+  // Iterate over each pending job
   for (const job of pendingJobs) {
     try {
       console.log(`Processing job with kickoffId: ${job.kickoffId}`);
 
-      // Poll the CrewAI /status/{kickoff_id} endpoint
+      // Fetch the status of the job from the CrewAI service
       const statusResponse = await fetch(
         `${process.env.CREWAI_URL}/status/${job.kickoffId}`,
         {
           method: "GET",
           headers: {
-            Authorization: `Bearer ${process.env.CREWAI_BEARER_TOKEN}`,
+            Authorization: `Bearer ${process.env.CREWAI_BEARER_TOKEN}`, // Use the bearer token for authorization
           },
         }
       );
 
+      // If the response is not OK, throw an error
       if (!statusResponse.ok) {
         throw new Error(
           `Failed to fetch job status from CrewAI for job ${job.kickoffId}`
         );
       }
 
+      // Parse the JSON response to get the status data
       const statusData = await statusResponse.json();
       const jobState = statusData.state;
 
       console.log("Received status data for job:", statusData);
 
-      // Update the CrewJobs table with the latest job state
+      // Update the CrewJobs table with the latest job state and timestamp
       await db
         .update(CrewJobs)
         .set({
@@ -185,8 +202,9 @@ export async function processPendingJobs(): Promise<void> {
         })
         .where(eq(CrewJobs.id, job.id));
 
+      // If the job state is "SUCCESS", process the job result
       if (jobState === "SUCCESS") {
-        // Process the job result
+        // Parse the job result from the status data
         const jobResult = JSON.parse(statusData.result);
         console.log("Processing job result:", jobResult);
 
@@ -196,7 +214,7 @@ export async function processPendingJobs(): Promise<void> {
           throw new Error("Job result video_ideas is not an array");
         }
 
-        // Parse the ideas from the job result and insert into Ideas table
+        // Map the ideas data to the format required for insertion into the Ideas table
         const newIdeas: InsertIdea[] = ideasData.map((idea: IdeaData) => ({
           userId,
           videoId: idea.video_id,
@@ -211,9 +229,10 @@ export async function processPendingJobs(): Promise<void> {
 
         console.log("Inserting new ideas into Ideas table:", newIdeas);
 
+        // Insert the new ideas into the Ideas table
         await db.insert(Ideas).values(newIdeas);
 
-        // Mark the job as processed
+        // Mark the job as processed in the CrewJobs table
         await db
           .update(CrewJobs)
           .set({ processed: true, updatedAt: new Date() })
@@ -222,6 +241,7 @@ export async function processPendingJobs(): Promise<void> {
         console.log(`Job ${job.kickoffId} marked as processed.`);
       }
     } catch (error) {
+      // Log any errors that occur during job processing
       console.error(`Error processing job ${job.kickoffId}:`, error);
     }
   }
