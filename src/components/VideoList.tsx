@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Video } from "@/server/db/schema";
 import { Button } from "@/components/ui/button";
-// import { scrapeVideos } from "@/server/youtube-actions";
+import { scrapeVideos } from "@/server/youtube-actions";
 import { useToast } from "@/hooks/use-toast";
 import { formatCount } from "@/lib/utils";
 import { Loader2, TvMinimal } from "lucide-react";
